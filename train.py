@@ -23,6 +23,8 @@ embed_size = 128
 max_token = 50
 num_epochs = 10
 
+# Lucky Number
+torch.manual_seed(1020)
 
 class TextDataset(Dataset):
     """
@@ -94,11 +96,11 @@ def collate_fn(batch):
             (padded_sequences, padded_masks, labels_tensor): Tuple. The masked sequence and masks, label tensor. Should
             be unpacked in every batch.
     """
-    sequences, labels = zip(*batch)
 
+    sequences, labels = zip(*batch)
     masks = []
     for seq in sequences:
-        mask = torch.ones(len(seq), dtype=torch.bool) if len(seq) > 0 else torch.zeros(1, dtype=torch.bool)
+        mask = torch.ones(seq.shape[0], dtype=torch.bool) if seq.shape[0] > 0 else torch.zeros(1, dtype=torch.bool)
         masks.append(mask)
 
     padded_sequences = pad_sequence(sequences, batch_first=True, padding_value=0)
@@ -132,14 +134,10 @@ for epoch in range(num_epochs):
     last_time = time.time()
     for i, (inputs, mask, targets) in enumerate(dataloader):
         inputs, targets, mask = inputs.to(device), targets.to(device), mask.to(device)
-        # The transpose below is not necessary, and should be modified later.
-        inputs = inputs.t()
         optimizer.zero_grad()
         with autocast():
             outputs = model(inputs, mask)
-        # Choose one last token for loss
-            outputs = outputs[-1]
-            loss = criterion(outputs, targets)
+            loss = criterion(outputs[:, -1, :], targets)
 
         scaler.scale(loss).backward()
         scaler.step(optimizer)

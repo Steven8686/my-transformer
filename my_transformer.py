@@ -31,7 +31,7 @@ class MultiHeadAttention(nn.Module):
         Returns:
             out (Tensor): [N, len_q, embed_size] context-aware representations
     """
-    def __init__(self, embed_size, num_head, dim_k, dim_v, drop_rate):
+    def __init__(self, embed_size, num_head, dim_k, dim_v, drop_rate=0.1):
         super(MultiHeadAttention, self).__init__()
         # basic parameters
         self.embed_size = embed_size
@@ -67,17 +67,17 @@ class MultiHeadAttention(nn.Module):
         k = k.reshape(N, len_k, self.num_head, self.dim_head)
 
         # attention score
-        energy = torch.einsum("qnhd,knhd->nhqk", [q, k])
+        energy = torch.einsum("nqhd,nkhd->nhqk", [q, k])
         attention = torch.softmax(energy/(self.embed_size**0.5), dim=3)
         # applying masks
         # padding_mask [N, len_q] sequence_mask [len_q, len_k]
         padding_mask = padding_mask.unsqueeze(1).unsqueeze(2)
         attention.masked_fill(~padding_mask, float('-inf'))
         sequence_mask = sequence_mask.unsqueeze(0).unsqueeze(0)
-        sequence_mask = sequence_mask.expand(len_k, self.num_head, -1, -1)
+        sequence_mask = sequence_mask.expand(N, self.num_head, -1, -1)
         attention.masked_fill(sequence_mask, float('-inf'))
         # output projection
-        out = (torch.einsum("nhqk,knhd->qnhd", [attention, v]))
+        out = (torch.einsum("nhqk,nkhd->nqhd", [attention, v]))
         out = out.reshape(out.shape[0], out.shape[1], -1)
         out = self.Out(out)
         return out
@@ -158,7 +158,7 @@ class Decoder(nn.Module):
         self.embed = nn.Embedding(vocab_size, embed_size)
         self.layers = nn.ModuleList([copy.deepcopy(DecoderLayer(embed_size, num_heads, embed_size, embed_size)) for i in range(num_layers)])
         # Learnable positional encoding
-        self.positional_encoding = nn.Parameter(torch.randn(seq_length, embed_size).unsqueeze(1))
+        self.positional_encoding = nn.Parameter(torch.randn(seq_length, embed_size).unsqueeze(0))
         self.fc = nn.Linear(embed_size, vocab_size)
 
     def forward(self, x, padding_mask):
@@ -169,8 +169,9 @@ class Decoder(nn.Module):
             Returns:
                 (Tensor) Output logits for vocabulary prediction, shape [batch_size, tgt_seq_len, vocab_size]
         """
-        x = self.embed(x) + self.positional_encoding
-        look_ahead_mask = self.create_sequence_mask(x.size(0))
+        x = self.embed(x)
+        x = x + self.positional_encoding
+        look_ahead_mask = self.create_sequence_mask(x.size(1))
         for layer in self.layers:
             x = layer(x, padding_mask, look_ahead_mask)
         x = self.fc(x)
